@@ -75,7 +75,8 @@ _token_file = os.path.join(_cache_dir, 'tokens.json')
 
 class InnerTube:
     """Object for interacting with the innertube API."""
-    def __init__(self, client='ANDROID', use_oauth=False, allow_cache=True):
+    def __init__(self, client='ANDROID', use_oauth=False, allow_cache=True,
+                 notification_callback=None):
         """Initialize an InnerTube object.
 
         :param str client:
@@ -92,6 +93,10 @@ class InnerTube:
         self.refresh_token = None
         self.use_oauth = use_oauth
         self.allow_cache = allow_cache
+        if notification_callback:
+            self.notification_callback = notification_callback
+        else:
+            self.notification_callback = self._notification_callback
 
         # Stored as epoch time
         self.expires = None
@@ -172,16 +177,18 @@ class InnerTube:
             },
             data=data
         )
-        response_data = json.loads(response.read())
-        verification_url = response_data['verification_url']
-        user_code = response_data['user_code']
-        print(f'Please open {verification_url} and input code {user_code}')
-        input('Press enter when you have completed this step.')
+        self._response_data = json.loads(response.read())
+        self._start_time = start_time
+        verification_url = self._response_data['verification_url']
+        user_code = self._response_data['user_code']
+        self.notification_callback(verification_url, user_code, self)
 
+
+    def oauth_completion_handler(self):
         data = {
             'client_id': _client_id,
             'client_secret': _client_secret,
-            'device_code': response_data['device_code'],
+            'device_code': self._response_data['device_code'],
             'grant_type': 'urn:ietf:params:oauth:grant-type:device_code'
         }
         response = request._execute_request(
@@ -196,8 +203,14 @@ class InnerTube:
 
         self.access_token = response_data['access_token']
         self.refresh_token = response_data['refresh_token']
-        self.expires = start_time + response_data['expires_in']
+        self.expires = self._start_time + response_data['expires_in']
         self.cache_tokens()
+
+    @staticmethod
+    def _notification_callback(verification_url, user_code, innertube):
+        print(f'Please open {verification_url} and input code {user_code}')
+        input('Press enter when you have completed this step.')
+        innertube.oauth_completion_handler()
 
     @property
     def base_url(self):
